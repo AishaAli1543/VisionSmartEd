@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "dart",
+			"command": "dart",
+			"cwd": "app1",
+			"args": [
+				"doc",
+				"."
+			],
+			"problemMatcher": [],
+			"label": "dart: dart doc .",
+			"detail": "app1",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		}
+	]
+}
