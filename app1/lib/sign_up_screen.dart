@@ -1,126 +1,115 @@
 import 'dart:developer';
-import 'package:app1/SpeechToTextService.dart';
-import 'package:app1/TextToSpeechService.dart';
+import 'package:app1/WelcomeScreen.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
-import 'LoginScreen.dart'; // Import the LoginScreen
+import 'package:cloud_firestore/cloud_firestore.dart'; // Firestore
+import 'package:flutter_tts/flutter_tts.dart'; // TTS
+import 'package:shared_preferences/shared_preferences.dart'; // Shared Preferences
+// Import TextToSpeech
 
-class SignUpScreen extends StatefulWidget {
-  const SignUpScreen({super.key});
+class UsernameEntryScreen extends StatefulWidget {
+  const UsernameEntryScreen({super.key});
 
   @override
-  _SignUpScreenState createState() => _SignUpScreenState();
+  _UsernameEntryScreenState createState() => _UsernameEntryScreenState();
 }
 
-class _SignUpScreenState extends State<SignUpScreen> {
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-      TextEditingController();
-  final TextToSpeechService _textToSpeechService = TextToSpeechService();
-  final SpeechToTextService _speechToTextService = SpeechToTextService();
-  bool isVisuallyImpaired = false;
+class _UsernameEntryScreenState extends State<UsernameEntryScreen> {
+  final TextEditingController _usernameController = TextEditingController();
+  final FlutterTts flutterTts = FlutterTts(); // TTS instance
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // Firestore instance
+  String? _storedUsername;
 
-  // Method to handle sign-up with Firebase
-  Future<void> _signUp() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-    final confirmPassword = _confirmPasswordController.text.trim();
+  @override
+  void initState() {
+    super.initState();
+    _checkStoredUsername();
+  }
 
-    if (password != confirmPassword) {
-      log('Passwords do not match.');
+  // Check if a username is stored in SharedPreferences
+  Future<void> _checkStoredUsername() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedUsername = prefs.getString('username'); // Retrieve stored username
+
+    log('Username found: $savedUsername');
+    _storedUsername = savedUsername;
+
+    // If username exists, navigate directly to WelcomeScreen
+    if (savedUsername != null) { // Ensure savedUsername is not null before navigating
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WelcomeScreen(userName: savedUsername),
+        ),
+      );
+    }
+  }
+
+  // Method to save username in Firestore and locally in SharedPreferences
+  Future<void> _saveUsername() async {
+    final username = _usernameController.text.trim();
+
+    if (username.isEmpty) {
+      log('Username cannot be empty.');
+      await _speak('Username cannot be empty.');
       return;
     }
 
     try {
-      final credential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
+      log('Attempting to save username: $username');
+
+      // Save username to Firestore
+      await _firestore.collection('users').add({'username': username});
+      log('Username saved successfully: $username');
+      await _speak('Username saved successfully. Welcome, $username.');
+
+      // Save the username in SharedPreferences for future use
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('username', username); // Save locally
+
+      // Navigate to WelcomeScreen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WelcomeScreen(userName: username),
+        ),
       );
-      log('User signed up successfully: ${credential.user!.email}');
-      _textToSpeechService.speak('User signed up successfully.'); // Text-to-speech feedback
-      // You can navigate to the login screen or home screen after successful sign-up
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'weak-password') {
-        log('The password provided is too weak.');
-        _textToSpeechService.speak('The password provided is too weak.'); // Text-to-speech feedback
-      } else if (e.code == 'email-already-in-use') {
-        log('The account already exists for that email.');
-        _textToSpeechService.speak('The account already exists for that email.'); // Text-to-speech feedback
-      }
     } catch (e) {
-      log('An error occurred: $e');
-      _textToSpeechService.speak('An error occurred. Please try again.'); // Text-to-speech feedback
+      log('Error saving to Firestore: $e');
+      await _speak('An error occurred while saving. Please try again.');
     }
   }
 
-  // Method to start speech recognition
-  void _startListening() async {
-    await _speechToTextService.initialize(); // Initialize the service
-    _speechToTextService.startListening((text) {
-      // This callback is triggered when speech is recognized
-      _emailController.text = text; // Populate email controller with recognized text
-    });
+  // TTS method to speak text
+  Future<void> _speak(String text) async {
+    await flutterTts.setLanguage("en-US");
+    await flutterTts.setPitch(1.0);
+    await flutterTts.speak(text);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sign up'),
-        automaticallyImplyLeading: false,
+        title: const Text('Enter Username'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (!isVisuallyImpaired) ...[
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                ),
-                onTap: _startListening, // Start listening when tapping on email field
+            TextField(
+              controller: _usernameController,
+              decoration: const InputDecoration(
+                labelText: 'Username',
+                hintText: 'Enter your username',
+                border: OutlineInputBorder(),
               ),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Create a password',
-                ),
-                obscureText: true,
-              ),
-              TextField(
-                controller: _confirmPasswordController,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm password',
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _signUp, // Call the Firebase sign-up method
-                child: const Text('Sign up'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => LoginScreen()),
-                  );
-                },
-                child: const Text('Log in'),
-              ),
-            ] else ...[
-              const Text('Welcome, we are adjusting for your needs.'),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  // Logic to proceed with text-to-speech or impaired features
-                },
-                child: const Text('Proceed with Accessibility'),
-              ),
-            ],
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _saveUsername, // Save username when button pressed
+              child: const Text('Save Username'),
+            ),
           ],
         ),
       ),

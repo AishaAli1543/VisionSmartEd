@@ -1,274 +1,294 @@
-import 'package:app1/ProgressScreen.dart';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
-import 'subject_chapters_screen.dart'; // Import SubjectChaptersScreen from its correct path
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_tts/flutter_tts.dart'; // TTS
+import 'package:speech_to_text/speech_to_text.dart' as stt; // STT
+import 'subject_chapters_screen.dart'; // Subject Screen
+import 'ProgressScreen.dart'; // Progress Screen
 
 class WelcomeScreen extends StatefulWidget {
   final String userName;
 
-  const WelcomeScreen({super.key, required this.userName});
+  const WelcomeScreen({Key? key, required this.userName}) : super(key: key);
 
   @override
-  _WelcomeScreenState createState() => _WelcomeScreenState();
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
-  late VideoPlayerController _controller;
-  final FirebaseAuth _auth = FirebaseAuth.instance; // Firebase Auth instance
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  late FlutterTts flutterTts;
+  late stt.SpeechToText _speech;
+  bool _isListening = false;
+  String _spokenText =
+      "Say a command like 'Explore Subjects' or 'Track Progress'.";
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.network(
-        'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4')
-      ..initialize().then((_) {
-        setState(() {}); // Refresh to show video when initialized
-      });
-    _controller.setLooping(true);
-    _controller.play();
+    flutterTts = FlutterTts();
+    _speech = stt.SpeechToText();
+    _initializeTTS();
+    _readMainScreenContent(); // Read the main screen content when the screen is loaded.
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<void> _initializeTTS() async {
+    try {
+      await flutterTts.setLanguage("en-US");
+      await flutterTts.setPitch(1.0);
+    } catch (e) {
+      print("TTS initialization error: $e");
+    }
+  }
+
+  Future<void> _speak(String text) async {
+    try {
+      await flutterTts.speak(text);
+      await flutterTts.awaitSpeakCompletion(true);
+    } catch (e) {
+      print("Error in TTS speaking: $e");
+    }
+  }
+
+  Future<void> _readMainScreenContent() async {
+    // Read out the main screen's information when it is loaded.
+    await _speak(
+        'Welcome, ${widget.userName}. On this screen, you can give commands such as Explore Subjects, Track Progress, or navigate to Lectures or Quizzes.');
+  }
+
+  void _startListening() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (status) => print("Speech status: $status"),
+        onError: (error) => print("Speech error: $error"),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(onResult: (result) {
+          setState(() {
+            _spokenText = result.recognizedWords;
+            if (_spokenText.isNotEmpty) {
+              _handleVoiceCommand(_spokenText);
+            }
+          });
+        });
+        _speak("Listening for a command.");
+      } else {
+        _speak("Speech recognition is not available. Please try again later.");
+      }
+    }
+  }
+
+  void _stopListening() {
+    _speech.stop();
+    setState(() => _isListening = false);
+    _speak("Stopped listening.");
+  }
+
+  void _handleVoiceCommand(String command) {
+    final normalizedCommand = command.toLowerCase().trim();
+    print("Command: $normalizedCommand"); // Debugging output
+
+    if (normalizedCommand.contains("explore subjects") ||
+        normalizedCommand.contains("subjects")) {
+      _speak("Navigating to Explore Subjects.");
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SubjectChaptersScreen()),
+      );
+    } else if (normalizedCommand.contains("track progress") ||
+        normalizedCommand.contains("progress")) {
+      _speak("Navigating to Track Progress.");
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ProgressScreen()),
+      );
+    } else if (normalizedCommand.contains("lectures")) {
+      _speak("Navigating to Lectures.");
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SubjectChaptersScreen()),
+      );
+    } else if (normalizedCommand.contains("quizzes")) {
+      _speak("Navigating to Quizzes.");
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SubjectChaptersScreen()),
+      );
+    } else if (normalizedCommand.contains("home")) {
+      Navigator.pop(context);
+      _speak("Returning to Home.");
+    } else if (normalizedCommand.contains("menu")) {
+      _scaffoldKey.currentState?.openDrawer();
+      _speak("Opening menu.");
+    } else {
+      _speak("Command not recognized. Please try again.");
+    }
+
+    setState(() {
+      _spokenText = ""; // Clear after processing the command
+    });
+  }
+
+  Future<void> _readDrawerOptions() async {
+    await _speak(
+        'Drawer opened. Available options are: Home, Subjects, Lectures, Quizzes, Progress.');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
-        title: Text('Greetings ${widget.userName}'),
-        backgroundColor: Colors.orange,
-        automaticallyImplyLeading: false, // Prevent default back button behavior
-        leading: Builder(
-          builder: (context) {
-            return IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () {
-                Scaffold.of(context).openDrawer(); // Open the drawer
-              },
-            );
+        title: Text('Welcome, ${widget.userName}'),
+        backgroundColor: const Color(0xFFFF9900),
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () {
+            _scaffoldKey.currentState?.openDrawer();
+            _readDrawerOptions();
           },
         ),
-      ),
-      drawer: _buildCustomDrawer(), // Updated drawer function call
-      body: SingleChildScrollView( // Added SingleChildScrollView to prevent overflow
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Greetings ${widget.userName}, Welcome Back',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 20),
-              _controller.value.isInitialized
-                  ? AspectRatio(
-                      aspectRatio: _controller.value.aspectRatio,
-                      child: VideoPlayer(_controller),
-                    )
-                  : const Center(child: CircularProgressIndicator()),
-              const SizedBox(height: 20),
-              const Text(
-                'Embrace every challenge as a stepping stone to your greatness',
-                style: TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'For students with impairments, learning is not just about textbooks and tests. '
-                'It’s a journey of discovery, where each challenge conquered is a triumph. Every '
-                'lesson learned, whether big or small, is a step closer to unlocking their full potential. '
-                'With determination and support, they can achieve greatness and inspire others along the way.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 30),
-              Center(
-                child: ElevatedButton(
-                  onPressed: () {
-                    // Navigate to SubjectChaptersScreen
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const SubjectChaptersScreen(),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text(
-                    'Explore Subjects',
-                    style: TextStyle(fontSize: 18),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Updated Drawer Widget to match the design
-  Widget _buildCustomDrawer() {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Custom Drawer Header for User Information
-          DrawerHeader(
-            decoration: const BoxDecoration(
-              color: Colors.orange,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 35,
-                  backgroundColor: Colors.white,
-                  child: Text(
-                    widget.userName[0].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 30.0,
-                      color: Colors.orange,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16.0),
-                // Wrap this text in an Expanded widget to prevent overflow
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.userName,
-                        style: const TextStyle(
-                          fontSize: 22.0,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                        overflow: TextOverflow.ellipsis, // Prevent text overflow
-                      ),
-                      Text(
-                        '@${widget.userName.toLowerCase()}',
-                        style: const TextStyle(
-                          fontSize: 14.0,
-                          color: Colors.white70,
-                        ),
-                        overflow: TextOverflow.ellipsis, // Prevent text overflow
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _buildDrawerItem(
-            icon: Icons.home,
-            text: 'Home',
-            onTap: () {
-              Navigator.pop(context); // Close the drawer
-            },
-          ),
-          _buildDrawerItem(
-            icon: Icons.school,
-            text: 'Subject Selections',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SubjectChaptersScreen(),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            icon: Icons.book,
-            text: 'Lectures',
-            onTap: () {
-              Navigator.pop(context); // Placeholder for Lectures screen
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SubjectChaptersScreen(),
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            icon: Icons.quiz,
-            text: 'Start Quizzes',
-            onTap: () {
-              Navigator.pop(context); // Placeholder for Start Quizzes
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SubjectChaptersScreen(), // Go to subject selection
-                ),
-              );
-            },
-          ),
-          _buildDrawerItem(
-            icon: Icons.track_changes,
-            text: 'Progress Tracking',
-            onTap: () {
-              Navigator.pop(context); // Placeholder for Progress Tracking
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ProgressScreen(),
-                ),
-              );
-            },
-          ),
-          const Divider(),
-          _buildDrawerItem(
-            icon: Icons.logout,
-            text: 'Logout',
-            onTap: () async {
-              try {
-                await _auth.signOut(); // Sign out the user
-                Navigator.pop(context); // Close the drawer
-                Navigator.of(context).pushReplacementNamed('/login'); // Redirect to login screen
-              } catch (e) {
-                // Show error if sign-out fails
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Logout failed: $e')),
-                );
-              }
-            },
+        actions: [
+          IconButton(
+            icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+            onPressed: _isListening ? _stopListening : _startListening,
           ),
         ],
       ),
-    );
-  }
-
-  // Helper function to build Drawer Items
-  Widget _buildDrawerItem({
-    required IconData icon,
-    required String text,
-    GestureTapCallback? onTap,
-  }) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.orange),
-      title: Text(
-        text,
-        style: const TextStyle(fontSize: 16),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Color(0xFFFF9900)),
+              child: Row(
+                children: [
+                  const Icon(Icons.account_circle,
+                      size: 40, color: Colors.black),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Hello, ${widget.userName}!',
+                    style: const TextStyle(color: Colors.black, fontSize: 20),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.mic),
+                    onPressed: () {
+                      _startListening(); // Start listening when mic in the drawer is pressed
+                    },
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.home),
+              title: const Text('Home'),
+              onTap: () {
+                Navigator.pop(context);
+                _speak("Returning to Home.");
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.book),
+              title: const Text('Subjects'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const SubjectChaptersScreen()),
+                );
+                _speak("Navigating to Subjects.");
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.video_library),
+              title: const Text('Lectures'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const SubjectChaptersScreen()),
+                );
+                _speak("Navigating to Lectures.");
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.quiz),
+              title: const Text('Quizzes'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const SubjectChaptersScreen()),
+                );
+                _speak("Navigating to Quizzes.");
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.show_chart),
+              title: const Text('Progress'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const ProgressScreen()),
+                );
+                _speak("Navigating to Progress Tracking.");
+              },
+            ),
+          ],
+        ),
       ),
-      onTap: onTap,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Greetings, ${widget.userName}!',
+              style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFF9900)),
+            ),
+            const SizedBox(height: 20),
+            Center(
+              child: Image.asset(
+                'assets/welcome screen image.png', // Ensure the path is correct
+                height: 200,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              _spokenText.isNotEmpty
+                  ? "You said: $_spokenText"
+                  : "Awaiting your command.",
+              style: const TextStyle(fontSize: 16, fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Embrace every challenge as a stepping stone to greatness.',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 20),
+            Center(
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const SubjectChaptersScreen()),
+                  );
+                  _speak("Navigating to Explore Subjects.");
+                },
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF9900)),
+                child: const Text('Explore Subjects'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart'; // Import flutter_tts
 import 'QuizScreen.dart';
 
-class ChapterDetailScreen extends StatelessWidget {
+class ChapterDetailScreen extends StatefulWidget {
   final String chapterTitle;
   final String chapterContent;
   final String subject;
@@ -16,20 +17,48 @@ class ChapterDetailScreen extends StatelessWidget {
   });
 
   @override
+  _ChapterDetailScreenState createState() => _ChapterDetailScreenState();
+}
+
+class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
+  final FlutterTts _flutterTts = FlutterTts(); // TTS instance
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeTTS(); // Initialize TTS and start reading the content
+  }
+
+  @override
+  void dispose() {
+    _flutterTts.stop(); // Stop TTS when the screen is disposed
+    super.dispose();
+  }
+
+  Future<void> _initializeTTS() async {
+    await _flutterTts.setLanguage("en-US"); // Set TTS language
+    await _flutterTts.setSpeechRate(0.5); // Set speech rate
+    await _flutterTts.setPitch(1.0); // Set pitch
+
+    // Automatically read the chapter title and content
+    await _flutterTts.speak("${widget.chapterTitle}. ${widget.chapterContent}");
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.orange,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () {
             Navigator.pop(context);
           },
         ),
         title: Text(
-          chapterTitle,
-          style: const TextStyle(color: Colors.black),
+          widget.chapterTitle,
+          style: const TextStyle(color: Colors.white),
         ),
       ),
       body: Padding(
@@ -39,7 +68,7 @@ class ChapterDetailScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                chapterTitle,
+                widget.chapterTitle,
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -48,7 +77,7 @@ class ChapterDetailScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               Text(
-                chapterContent,
+                widget.chapterContent,
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.black87,
@@ -60,7 +89,7 @@ class ChapterDetailScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => QuizScreen(subject: subject),
+                      builder: (context) => QuizScreen(subject: widget.subject),
                     ),
                   );
                 },

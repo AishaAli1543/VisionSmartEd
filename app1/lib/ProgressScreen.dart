@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -10,16 +12,41 @@ class ProgressScreen extends StatefulWidget {
 }
 
 class _ProgressScreenState extends State<ProgressScreen> {
-  // Variables to hold data
-  int totalLectures = 24;
-  int totalQuizzes = 10;
-  int quizzesPassed = 0;
-  int quizzesFailed = 0;
-  double totalScore = 0;
-  int quizzesTaken = 0;
-
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FlutterTts flutterTts = FlutterTts();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+
+  bool isLoading = true;
+  bool _isListening = false;
+  String _spokenCommand = "";
+
+  Map<String, dynamic> subjectsProgress = {
+    'Maths': {
+      'quizzesTaken': 0,
+      'quizzesPassed': 0,
+      'quizzesFailed': 0,
+      'totalScore': 0.0,
+    },
+    'Science': {
+      'quizzesTaken': 0,
+      'quizzesPassed': 0,
+      'quizzesFailed': 0,
+      'totalScore': 0.0,
+    },
+    'English': {
+      'quizzesTaken': 0,
+      'quizzesPassed': 0,
+      'quizzesFailed': 0,
+      'totalScore': 0.0,
+    },
+    'History': {
+      'quizzesTaken': 0,
+      'quizzesPassed': 0,
+      'quizzesFailed': 0,
+      'totalScore': 0.0,
+    },
+  };
 
   @override
   void initState() {
@@ -27,195 +54,128 @@ class _ProgressScreenState extends State<ProgressScreen> {
     _loadProgress();
   }
 
-  // Load the saved progress from Firestore
-  _loadProgress() async {
+  Future<void> _loadProgress() async {
     User? user = _auth.currentUser;
     if (user != null) {
-      DocumentSnapshot snapshot = await _firestore.collection('users').doc(user.uid).get();
+      try {
+        DocumentSnapshot snapshot =
+            await _firestore.collection('users').doc(user.uid).get();
 
-      if (snapshot.exists) {
-        setState(() {
-          quizzesPassed = snapshot['quizzesPassed'] ?? 0;
-          quizzesFailed = snapshot['quizzesFailed'] ?? 0;
-          totalScore = snapshot['totalScore'] ?? 0.0;
-          quizzesTaken = snapshot['quizzesTaken'] ?? 0;
-        });
+        if (snapshot.exists) {
+          var data = snapshot.data() as Map<String, dynamic>;
+          setState(() {
+            subjectsProgress = data['subjects'] != null
+                ? Map<String, dynamic>.from(data['subjects'])
+                : subjectsProgress;
+          });
+        } else {
+          await flutterTts.speak(
+              'No progress data found. Please complete some quizzes first.');
+        }
+      } catch (e) {
+        print('Error loading data: $e');
       }
     }
-  }
-
-  // Save the progress to Firestore
-  _saveProgress() async {
-    User? user = _auth.currentUser;
-    if (user != null) {
-      await _firestore.collection('users').doc(user.uid).set({
-        'quizzesPassed': quizzesPassed,
-        'quizzesFailed': quizzesFailed,
-        'totalScore': totalScore,
-        'quizzesTaken': quizzesTaken,
-      });
-    }
-  }
-
-  // Calculate rank based on the percentage of quizzes passed
-  String calculateRank() {
-    if (quizzesTaken == 0) return "No rank"; // No quizzes taken
-    double passRate = (quizzesPassed / quizzesTaken) * 100;
-
-    if (passRate == 100) {
-      return "1st";
-    } else if (passRate >= 90) {
-      return "Top 5";
-    } else if (passRate >= 70) {
-      return "Top 10";
-    } else if (passRate >= 50) {
-      return "Top 25";
-    } else {
-      return "Below 50th percentile";
-    }
-  }
-
-  // Function to calculate average score
-  double calculateAverageScore() {
-    if (quizzesTaken == 0) return 0.0;
-    return totalScore / quizzesTaken;
-  }
-
-  // Update quiz results after completion
-  void updateQuizResults(bool passed, double score) {
     setState(() {
-      quizzesTaken++;
-      totalScore += score;
-
-      if (passed) {
-        quizzesPassed++;
-      } else {
-        quizzesFailed++;
-      }
-      _saveProgress(); // Save progress to Firestore
+      isLoading = false;
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () {
-            Navigator.pop(context); // Navigate back
-          },
+  Future<void> _saveProgress() async {
+    User? user = _auth.currentUser;
+    if (user != null) {
+      try {
+        await _firestore.collection('users').doc(user.uid).set({
+          'subjects': subjectsProgress,
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Progress saved successfully!')),
+        );
+      } catch (e) {
+        print('Error saving data: $e');
+      }
+    }
+  }
+
+  void _recordQuizScore(String subject, double score, bool passed) {
+    setState(() {
+      if (!subjectsProgress.containsKey(subject)) {
+        subjectsProgress[subject] = {
+          'quizzesTaken': 0,
+          'quizzesPassed': 0,
+          'quizzesFailed': 0,
+          'totalScore': 0.0,
+        };
+      }
+
+      subjectsProgress[subject]['quizzesTaken']++;
+      subjectsProgress[subject]['totalScore'] += score;
+
+      if (passed) {
+        subjectsProgress[subject]['quizzesPassed']++;
+      } else {
+        subjectsProgress[subject]['quizzesFailed']++;
+      }
+    });
+
+    _saveProgress();
+  }
+
+  String calculateAverageScore(String subject) {
+    var subjectData = subjectsProgress[subject];
+    return subjectData['quizzesTaken'] > 0
+        ? (subjectData['totalScore'] / subjectData['quizzesTaken'])
+            .toStringAsFixed(2)
+        : '0.0';
+  }
+
+  Widget _buildSubjectInfoCard(String subject) {
+    var subjectData = subjectsProgress[subject];
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Colors.orangeAccent, Colors.redAccent],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(20),
       ),
-      body: Padding(
+      child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RichText(
-              text: const TextSpan(
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                children: [
-                  TextSpan(
-                    text: 'Track Your ',
-                    style: TextStyle(color: Colors.black),
-                  ),
-                  TextSpan(
-                    text: 'Progress ',
-                    style: TextStyle(color: Colors.orange),
-                  ),
-                  TextSpan(
-                    text: '& Complete Info of ',
-                    style: TextStyle(color: Colors.black),
-                  ),
-                  TextSpan(
-                    text: 'Your Growth',
-                    style: TextStyle(color: Colors.black),
-                  ),
-                ],
-              ),
+            Icon(Icons.book, size: 40, color: Colors.white.withOpacity(0.9)),
+            const SizedBox(height: 10),
+            Text(
+              '$subject Progress',
+              style: const TextStyle(fontSize: 16, color: Colors.white),
             ),
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20.0),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                children: [
-                  const Icon(
-                    Icons.emoji_events,
-                    size: 50,
-                    color: Colors.orange,
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Rank',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.black54,
-                    ),
-                  ),
-                  Text(
-                    calculateRank(), // Display calculated rank
-                    style: const TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 10),
+            Text(
+              'Quizzes Taken: ${subjectData['quizzesTaken']}',
+              style: const TextStyle(color: Colors.white70),
             ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                children: [
-                  _buildInfoCard(
-                    icon: Icons.video_collection,
-                    title: 'Total Lectures',
-                    value: totalLectures.toString(),
-                    iconColor: Colors.blue,
-                  ),
-                  _buildInfoCard(
-                    icon: Icons.quiz,
-                    title: 'Total Quizzes',
-                    value: totalQuizzes.toString(),
-                    iconColor: Colors.purple,
-                  ),
-                  _buildInfoCard(
-                    icon: Icons.check_circle_outline,
-                    title: 'Quizzes Passed',
-                    value: quizzesPassed.toString(),
-                    iconColor: Colors.blue,
-                  ),
-                  _buildInfoCard(
-                    icon: Icons.cancel,
-                    title: 'Quizzes Failed',
-                    value: quizzesFailed.toString(),
-                    iconColor: Colors.purple,
-                  ),
-                  _buildInfoCard(
-                    icon: Icons.score,
-                    title: 'Average Score',
-                    value: calculateAverageScore().toStringAsFixed(2),
-                    iconColor: Colors.green,
-                  ),
-                  _buildInfoCard(
-                    icon: Icons.bar_chart,
-                    title: 'Quizzes Taken',
-                    value: quizzesTaken.toString(),
-                    iconColor: Colors.orange,
-                  ),
-                ],
-              ),
+            Text(
+              'Quizzes Passed: ${subjectData['quizzesPassed']}',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            Text(
+              'Quizzes Failed: ${subjectData['quizzesFailed']}',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            Text(
+              'Average Score: ${calculateAverageScore(subject)}',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: subjectData['quizzesTaken'] > 0
+                  ? subjectData['quizzesPassed'] / subjectData['quizzesTaken']
+                  : 0.0,
+              backgroundColor: Colors.white.withOpacity(0.3),
+              color: Colors.white,
+              minHeight: 8,
             ),
           ],
         ),
@@ -223,47 +183,88 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  // Helper widget to build the info cards
-  Widget _buildInfoCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color iconColor,
-  }) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              size: 40,
-              color: iconColor,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange, Colors.redAccent],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
-            ),
-          ],
+          ),
         ),
+        title: const Text(
+          'Your Progress',
+          style: TextStyle(
+              fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        centerTitle: true,
+      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16.0),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.orange, Colors.redAccent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(20),
+                        bottomRight: Radius.circular(20),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const Text(
+                          'Overall Progress',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Icon(Icons.emoji_events,
+                            size: 50, color: Colors.yellow.shade700),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                      childAspectRatio: 0.7,
+                    ),
+                    itemCount: subjectsProgress.length,
+                    itemBuilder: (context, index) {
+                      String subject = subjectsProgress.keys.elementAt(index);
+                      return _buildSubjectInfoCard(subject);
+                    },
+                  ),
+                ],
+              ),
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _saveProgress,
+        label: const Text('Save Progress'),
+        icon: const Icon(Icons.save),
+        backgroundColor: Colors.orange,
       ),
     );
   }

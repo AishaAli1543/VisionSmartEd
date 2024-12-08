@@ -3,13 +3,13 @@ plugins {
     // START: FlutterFire Configuration
     id("com.google.gms.google-services")
     // END: FlutterFire Configuration
-    id "kotlin-android"
+    id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id "dev.flutter.flutter-gradle-plugin"
+    id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
-    namespace = "com.example.app1"
+    namespace = "com.example.app1" // Ensure this is the correct namespace
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,15 +23,14 @@ android {
     }
 
     defaultConfig {
-    applicationId = "com.example.app1"
-    minSdkVersion 23
-    targetSdkVersion 33
-    versionCode 1
-    versionName "1.0"
+        applicationId = "com.example.app1" // Ensure this matches your package name
+        minSdkVersion 23
+        targetSdkVersion 33
+        versionCode 1
+        versionName "1.0"
 
         multiDexEnabled true
-}
-
+    }
 
     buildTypes {
         release {
@@ -46,13 +45,14 @@ flutter {
     source = "../.."
 }
 
-    dependencies {
-        implementation platform('com.google.firebase:firebase-bom:31.0.0') // Use the Firebase BOM
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:31.0.0') // Use the Firebase BOM
 
-        // Add Firebase dependencies without specifying version
-        implementation 'com.google.firebase:firebase-auth'
-        implementation 'com.google.firebase:firebase-firestore' // Example for Firestore
-        implementation 'com.google.firebase:firebase-analytics'
+    // Add Firebase dependencies without specifying version
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore' // Example for Firestore
+    implementation 'com.google.firebase:firebase-analytics'
+}
 
-    }
+// Apply the Google services plugin
 apply plugin: 'com.google.gms.google-services'

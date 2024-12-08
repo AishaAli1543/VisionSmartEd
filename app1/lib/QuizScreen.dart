@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';  // Import flutter_tts
+import 'package:speech_to_text/speech_to_text.dart' as stt; // STT
 
 class QuizScreen extends StatefulWidget {
   final String subject;
@@ -14,6 +15,8 @@ class _QuizScreenState extends State<QuizScreen> {
   List<int?> selectedAnswers = []; // Initialize as empty
   int score = 0;
   bool showResults = false;
+  final FlutterTts flutterTts = FlutterTts();  // Initialize TTS
+  final stt.SpeechToText _speech = stt.SpeechToText(); // Initialize STT
 
   // Map of subject quizzes
   final Map<String, List<Map<String, dynamic>>> subjectQuizzes = {
@@ -230,6 +233,49 @@ class _QuizScreenState extends State<QuizScreen> {
     ],
   };
 
+  bool _isListening = false; // Track listening status
+  String _spokenCommand = ""; // Store recognized command
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeQuiz();
+    _initializeTTS();
+  }
+
+  Future<void> _initializeTTS() async {
+    flutterTts.setCompletionHandler(() {
+      print("TTS completed");
+    });
+
+    flutterTts.setErrorHandler((msg) {
+      print("TTS error: $msg");
+    });
+  }
+
+  void _initializeQuiz() {
+    final quiz = subjectQuizzes[widget.subject] ?? [];
+    // Initialize selectedAnswers based on quiz length
+    if (selectedAnswers.isEmpty) {
+      selectedAnswers = List<int?>.filled(quiz.length, null);
+    }
+    // Announce the first question
+    _speakQuestion(0);
+  }
+
+  // Method to speak the current question and options
+  Future<void> _speakQuestion(int index) async {
+    final quiz = subjectQuizzes[widget.subject] ?? [];
+    if (index < quiz.length) {
+      String question = quiz[index]['question'];
+      String options = quiz[index]['options'].join(', '); // Join options with commas
+      String announcement = "Question: $question. Options are: $options";
+      await flutterTts.setLanguage("en-US");
+      await flutterTts.setPitch(1.0);
+      await flutterTts.speak(announcement);
+    }
+  }
+
   void calculateScore() {
     score = 0;
     final quiz = subjectQuizzes[widget.subject] ?? [];
@@ -242,40 +288,80 @@ class _QuizScreenState extends State<QuizScreen> {
       showResults = true;
     });
 
-    // Update progress after quiz completion
-    _updateProgress(quiz.length);
+    // Announce the score after quiz completion
+    _announceScore(score, quiz.length);
   }
 
-  void _updateProgress(int totalQuestions) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    int quizzesTaken = prefs.getInt('quizzesTaken') ?? 0;
-    double totalScore = prefs.getDouble('totalScore') ?? 0;
+  // Method to announce the score
+  Future<void> _announceScore(int score, int totalQuestions) async {
+    String announcement = "You scored $score out of $totalQuestions.";
+    await flutterTts.setLanguage("en-US");
+    await flutterTts.setPitch(1.0);
+    await flutterTts.speak(announcement);
+  }
 
-    // Update the stored values
-    await prefs.setInt('quizzesTaken', quizzesTaken + 1);
-    await prefs.setDouble('totalScore', totalScore + score);
+  // Start listening for voice input (STT)
+  void _startListening() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) {
+            setState(() {
+              _spokenCommand = val.recognizedWords;
+            });
+            _handleVoiceCommand(_spokenCommand);
+          },
+        );
+      } else {
+        setState(() => _isListening = false);
+        await flutterTts.speak('Speech recognition not available.');
+      }
+    }
+  }
 
-    // Update quizzes passed/failed
-    if (score >= (totalQuestions / 2)) { // Assuming 50% is the passing mark
-      int quizzesPassed = prefs.getInt('quizzesPassed') ?? 0;
-      await prefs.setInt('quizzesPassed', quizzesPassed + 1);
+  // Stop listening for voice input
+  void _stopListening() {
+    _speech.stop();
+    setState(() => _isListening = false);
+  }
+
+  // Handle voice commands
+  void _handleVoiceCommand(String command) {
+    final normalizedCommand = command.trim().toLowerCase();
+    print("Recognized Command: $normalizedCommand"); // Debugging line
+
+    if (normalizedCommand.contains("next question")) {
+      // Logic to go to the next question
+      int currentQuestionIndex = selectedAnswers.indexOf(null);
+      if (currentQuestionIndex != -1) {
+        _speakQuestion(currentQuestionIndex);
+      } else {
+        calculateScore();
+      }
     } else {
-      int quizzesFailed = prefs.getInt('quizzesFailed') ?? 0;
-      await prefs.setInt('quizzesFailed', quizzesFailed + 1);
+      flutterTts.speak("Command not recognized. Please try again.");
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final quiz = subjectQuizzes[widget.subject] ?? [];
-    
-    // Initialize selectedAnswers based on quiz length
-    if (selectedAnswers.isEmpty) {
-      selectedAnswers = List<int?>.filled(quiz.length, null);
-    }
-    
+
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.subject} Quiz')),
+      appBar: AppBar(
+        title: Text('${widget.subject} Quiz'),
+        actions: [
+          IconButton(
+            icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+            onPressed: _isListening ? _stopListening : _startListening,
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: showResults
@@ -300,10 +386,6 @@ class _QuizScreenState extends State<QuizScreen> {
             },
           ),
         ),
-        ElevatedButton(
-          onPressed: calculateScore,
-          child: const Text('Submit Quiz'),
-        ),
       ],
     );
   }
@@ -320,6 +402,8 @@ class _QuizScreenState extends State<QuizScreen> {
               showResults = false;
               selectedAnswers = List<int?>.filled(quiz.length, null);
             });
+            // Announce the first question again when retrying
+            _speakQuestion(0);
           },
           child: const Text('Retry Quiz'),
         ),
@@ -347,6 +431,21 @@ class _QuizScreenState extends State<QuizScreen> {
               });
             },
           ),
+        ElevatedButton(
+          onPressed: () {
+            if (selectedAnswers[questionIndex] != null) {
+              // Speak the next question
+              if (questionIndex + 1 < subjectQuizzes[widget.subject]!.length) {
+                _speakQuestion(questionIndex + 1);
+              } else {
+                // If it's the last question, announce the score
+                calculateScore();
+              }
+            }
+          },
+          child: const Text('Submit Answer'),
+        ),
+        const SizedBox(height: 20), // Add some space between questions
       ],
     );
   }
